@@ -1,0 +1,211 @@
+/* ------------------------------ NOTAS ----------------------------------- */
+const COMP=NOTAS.comp, CAREA=NOTAS.compArea, ANOMES=NOTAS.areasNomes;
+const PERNOME=NOTAS.per, COMNOTAS=NOTAS.perComNotas;
+const CORTE=6.0, CRIT=4.0;
+const SITS=['Crítico','Atenção','Satisfatório','Sem lançamento'];
+const SITC={'Crítico':C.red,'Atenção':'#E8863F','Satisfatório':C.navy,'Sem lançamento':'#9AA3BC'};
+const SITCL={'Crítico':'bad','Atenção':'mid','Satisfatório':'ok','Sem lançamento':''};
+const key=a=>a.t+'|'+a.n;
+const perSel=()=>[...state2.per].sort();
+let ALLOW=new Set();
+const AREA_TEC='Formação Técnica e Profissional';
+const ehTec=i=>ANOMES[CAREA[i]]===AREA_TEC;
+function calcAllow(){ALLOW=new Set(COMP.map((c,i)=>i).filter(i=>state2.area.has(ANOMES[CAREA[i]])));}
+function alunosF(){return NOTAS.alunos.filter(a=>(!state.serie.size||state.serie.has(a.s))&&(!state.turma.size||state.turma.has(a.t)));}
+function medias(a,p){const d=a.p[p];if(!d)return [];
+  return Object.keys(d).filter(k=>ALLOW.has(+k)&&d[k][6]!=null).map(k=>d[k][6]);}
+function mediaGeral(a,p){const v=medias(a,p);return v.length?v.reduce((x,y)=>x+y,0)/v.length:null;}
+function abaixo(a,p){const v=medias(a,p);return v.length?v.filter(x=>x<CORTE).length:null;}
+function situacao(v){return v==null?'Sem lançamento':v<CRIT?'Crítico':v<CORTE?'Atenção':'Satisfatório';}
+const sit=v=>{const s=situacao(v);return [s,SITCL[s]];};
+const deltaHTML=d=>d==null?'<span class="flat">—</span>':d>0.049?`<span class="up">▲ ${fm(d)}</span>`:d<-0.049?`<span class="down">▼ ${fm(Math.abs(d))}</span>`:'<span class="flat">= 0,0</span>';
+
+function renderNotas(){
+  calcAllow();
+  chips($('nSerie'),NOTAS.series,state.serie,syncTurmas);
+  chips($('nTurma'),turmasFor(NOTAS.turmas),state.turma);
+  chips($('nArea'),NOTAS.areas,state2.area,calcAllow,NOTAS.areas.map(a=>a==='Formação Técnica e Profissional'?'FTP':a));
+  chips($('nPer'),['1','2','3','4'].map(p=>PERNOME[p-1]),{has:x=>state2.per.has(String(PERNOME.indexOf(x)+1)),
+    delete:x=>state2.per.delete(String(PERNOME.indexOf(x)+1)),add:x=>state2.per.add(String(PERNOME.indexOf(x)+1)),size:1});
+  const ps=perSel(), pA=ps[0]||'1', pB=ps[ps.length-1]||'1';
+  const F0=alunosF();
+  const cnt={};SITS.forEach(s=>cnt[s]=0);
+  F0.forEach(a=>cnt[situacao(mediaGeral(a,pB))]++);
+  chips($('nSit'),SITS,state2.sit,null,SITS.map(s=>s+' · '+cnt[s]));
+  const F=state2.sit.size?F0.filter(a=>state2.sit.has(situacao(mediaGeral(a,pB)))):F0;
+
+  $('ttl').textContent='Acompanhamento de Notas';
+  $('crumb').textContent=(state.serie.size?[...state.serie].join(', '):'Todas as séries')+' · '+
+    (state.turma.size?[...state.turma].join(', '):'Todas as turmas')+' · '+
+    (state2.area.size===NOTAS.areas.length?'todas as áreas':[...state2.area].join(', '))+
+    (state2.sit.size?' · situação: '+[...state2.sit].join(', '):'')+' · '+
+    F.length+' de '+NOTAS.alunos.length+' estudantes · '+(ps.length?ps.map(p=>PERNOME[p-1]).join(' x '):'nenhum período');
+  const qb=state2.q.toLowerCase();
+  const opts=F.filter(a=>!qb||a.n.toLowerCase().includes(qb));
+  if(state2.aluno&&!F.some(a=>key(a)===state2.aluno))state2.aluno='';
+  $('nAluno').innerHTML='<option value="">— Visão geral da turma —</option>'+
+    opts.map(a=>`<option value="${esc(key(a))}"${key(a)===state2.aluno?' selected':''}>${esc(a.n)} · ${esc(a.t)}</option>`).join('');
+  $('selInfo').innerHTML='Estudantes: <b style="color:#fff">'+F.length+'</b><br>Turmas: <b style="color:#fff">'+new Set(F.map(a=>a.t)).size+
+    '</b><br>Componentes: <b style="color:#fff">'+ALLOW.size+'</b>';
+
+  /* avisos */
+  const tsel=[...new Set(F0.map(a=>a.t))];
+  const av=(NOTAS.semDados||[]).filter(x=>tsel.includes(x.turma)&&state2.per.has(x.p));
+  let aviso=av.length?'<div class="hint"><b>Atenção:</b> '+av.map(x=>'a turma <b>'+esc(x.turma)+'</b> não possui notas lançadas no <b>'+esc(PERNOME[x.p-1])+'</b>').join('; ')+'.</div>':'';
+  aviso+='<div class="hint">Onde a turma tem nota lançada e o estudante não, a ausência entra como <b>0,0</b> e aparece marcada com <b>*</b>. '+
+    (NOTAS.imputacao?'No total são <b>'+NOTAS.imputacao.n+'</b> ocorrências em <b>'+NOTAS.imputacao.alunos+'</b> estudantes. ':'')+
+    'Estudantes sem nenhum lançamento no período seguem como “Sem lançamento”.</div>';
+  if(state2.sit.size)aviso+='<div class="hint">Filtro de situação ativo: os indicadores e gráficos abaixo consideram apenas os <b>'+F.length+'</b> estudantes em <b>'+[...state2.sit].join(' / ')+'</b>.</div>';
+  $('nAviso').innerHTML=aviso;
+  const inc=(NOTAS.incons||[]).filter(x=>x.p<=2&&tsel.includes(x.turma)&&x.campo==='MÉDIA');
+  const dp=[];const vis=new Set();
+  (NOTAS.dups||[]).filter(x=>x.p<=2&&tsel.includes(x.turma)).forEach(x=>{const k=x.turma+x.nome;if(!vis.has(k)){vis.add(k);dp.push(x);}});
+  $('nAvisoDados').innerHTML=(inc.length||dp.length)?'<div class="hint warn"><details><summary>Inconsistências encontradas na planilha de origem ('+(inc.length+dp.length)+')</summary><div style="margin-top:7px;line-height:1.7">'+
+    inc.map(x=>'• <b>'+esc(x.nome)+'</b> ('+esc(x.turma)+', '+esc(PERNOME[x.p-1])+'): média de '+esc(x.comp)+' lançada como <b>'+fm(x.valor,2)+'</b> — limitada a 10,0 no painel.').join('<br>')+
+    (inc.length&&dp.length?'<br>':'')+
+    dp.map(x=>'• <b>'+esc(x.nome)+'</b> ('+esc(x.turma)+'): aparece em duas linhas na planilha (nº '+x.numeros.join(' e ')+') — considerada a mais completa.').join('<br>')+
+    '</div></details></div>':'';
+
+  if(!F.length||!ps.length||!ALLOW.size){
+    $('nKpis').innerHTML='<div class="empty">'+(!ps.length?'Selecione ao menos um período.':!ALLOW.size?'Selecione ao menos uma área do conhecimento.':'Nenhum estudante para esse filtro.')+'</div>';
+    ['nChBncc','nChTec','nChDist'].forEach(i=>$(i).innerHTML='<div class="empty">Sem dados</div>');
+    $('cardBncc').style.display='';$('cardTec').style.display='';
+    $('cardFicha').style.display='none';$('nTbl').innerHTML='';return;}
+
+  const gm=p=>{const v=F.map(a=>mediaGeral(a,p)).filter(x=>x!=null);return v.length?v.reduce((x,y)=>x+y,0)/v.length:null;};
+  const todas=p=>F.flatMap(a=>medias(a,p));
+  const mA=gm(pA),mB=gm(pB),dlt=(mA!=null&&mB!=null&&pA!==pB)?mB-mA:null;
+  const tm=todas(pB),apr=tm.filter(v=>v>=CORTE).length;
+  const nc=F.filter(a=>situacao(mediaGeral(a,pB))==='Crítico').length;
+  const na=F.filter(a=>situacao(mediaGeral(a,pB))==='Atenção').length;
+  $('nKpis').innerHTML=[['Estudantes',F.length,F.filter(a=>a.p[pB]).length+' com notas em '+PERNOME[pB-1]],
+    ['Média geral',fm(mB,2),PERNOME[pB-1]],
+    ...(dlt!=null?[['Variação entre períodos',(dlt>0?'+':'')+fm(dlt,2),PERNOME[pA-1]+' → '+PERNOME[pB-1]]]:[]),
+    ['Médias ≥ 6,0',tm.length?(apr/tm.length*100).toFixed(0)+'%':'—',apr+' de '+tm.length+' médias lançadas'],
+    ['Em atenção',na,'média de 4,0 a 5,9'],['Em situação crítica',nc,'média abaixo de 4,0']]
+    .map(k=>`<div class="kpi"><div class="v" style="font-size:${String(k[1]).length>12?'15px':'26px'}">${esc(k[1])}</div><div class="l">${k[0]}</div><div class="s">${k[2]}</div></div>`).join('');
+
+  const usados=[...ALLOW].filter(i=>F.some(a=>ps.some(p=>a.p[p]&&a.p[p][i]&&a.p[p][i][6]!=null)));
+  const mcomp=(p,i)=>{const v=F.map(a=>a.p[p]&&a.p[p][i]?a.p[p][i][6]:null).filter(x=>x!=null);
+    return v.length?v.reduce((x,y)=>x+y,0)/v.length:null;};
+  const ordena=lst=>lst.map(i=>[i,mcomp(pB,i)!=null?mcomp(pB,i):mcomp(pA,i)]).sort((a,b)=>(b[1]||0)-(a[1]||0)).map(x=>x[0]);
+  const serie=(ord,lw)=>[ord.map(i=>COMP[i]),ps.map(p=>({name:PERNOME[p-1],color:PERC[p-1],vals:ord.map(i=>mcomp(p,i))})),
+    {max:10,ref:CORTE,dec:1,labelW:lw}];
+  const bn=ordena(usados.filter(i=>!ehTec(i))), tc=ordena(usados.filter(ehTec));
+  $('cardBncc').style.display=bn.length?'':'none';
+  $('cardTec').style.display=tc.length?'':'none';
+  $('cardBncc').className='card '+(tc.length?'c6':'c12');
+  $('cardTec').className='card '+(bn.length?'c6':'c12');
+  if(bn.length)gbar($('nChBncc'),...serie(bn,bn.length&&tc.length?0.42:0.30));
+  if(tc.length)gbar($('nChTec'),...serie(tc,bn.length&&tc.length?0.46:0.32));
+  const FX=[['Crítico · 0,0 a 3,9',0,3.999],['Atenção · 4,0 a 5,9',4,5.999],['6,0 a 6,9',6,6.999],['7,0 a 8,9',7,8.999],['9,0 a 10,0',9,10]];
+  gbar($('nChDist'),FX.map(f=>f[0]),ps.map(p=>{const t=todas(p);
+    return {name:PERNOME[p-1],color:PERC[p-1],vals:FX.map(f=>t.filter(v=>v>=f[1]&&v<=f[2]).length)};}),{dec:0,labelW:0.34});
+
+  /* ficha individual */
+  const al=F.find(a=>key(a)===state2.aluno), fc=$('cardFicha');
+  if(!al){fc.style.display='none';}
+  else{fc.style.display='';
+    const ini=al.n.split(' ').filter(x=>x.length>2);
+    const mg=ps.map(p=>mediaGeral(al,p)), ab=ps.map(p=>abaixo(al,p));
+    const dl=(ps.length>1&&mg[0]!=null&&mg[mg.length-1]!=null)?mg[mg.length-1]-mg[0]:null;
+    const compsA=[...ALLOW].filter(i=>ps.some(p=>al.p[p]&&al.p[p][i]));
+    const rank=compsA.map(i=>[i,al.p[pB]&&al.p[pB][i]?al.p[pB][i][6]:null]).filter(x=>x[1]!=null).sort((a,b)=>b[1]-a[1]);
+    const st=al.st[pB]||al.st[pA]||'—', sA=sit(mg[mg.length-1]);
+    let kpi=[['Média geral',fm(mg[mg.length-1],2),PERNOME[pB-1]]];
+    if(ps.length>1)kpi.push(['Média anterior',fm(mg[0],2),PERNOME[pA-1]],
+      ['Variação',dl!=null?(dl>0?'+':'')+fm(dl,2):'—',dl==null?'sem base de comparação':dl>0?'evolução':dl<0?'queda':'estável']);
+    const dPB=al.p[pB]||{}; const nimp=Object.keys(dPB).filter(k=>ALLOW.has(+k)&&dPB[k][7]).length;
+    kpi.push(['Componentes < 6,0',ab[ab.length-1]==null?'—':ab[ab.length-1],'em '+PERNOME[pB-1]],
+      ['Sem nota lançada',nimp,nimp?'contabilizados como 0,0':'nenhuma ausência'],
+      ['Melhor desempenho',rank.length?short(COMP[rank[0][0]],20):'—',rank.length?fm(rank[0][1],1):''],
+      ['Maior dificuldade',rank.length?short(COMP[rank[rank.length-1][0]],20):'—',rank.length?fm(rank[rank.length-1][1],1):'']);
+    fc.innerHTML=`<div class="stu"><div class="av" style="background:${SITC[sA[0]]}">${esc((ini[0]||al.n)[0]+((ini[1]||' ')[0]||''))}</div>
+      <div style="flex:1;min-width:200px"><div class="nm">${esc(al.n)}</div>
+      <div class="mt">Turma ${esc(al.t)} · ${esc(al.s)} · Situação no sistema: <b>${esc(st)}</b></div></div>
+      <div><span class="pill ${sA[1]}">${sA[0]}</span></div></div>
+      <div class="kpis" style="margin-top:14px">`+
+      kpi.map(k=>`<div class="kpi"><div class="v" style="font-size:${String(k[1]).length>12?'15px':'24px'}">${esc(k[1])}</div><div class="l">${k[0]}</div><div class="s">${k[2]}</div></div>`).join('')+`</div>
+      <div class="grid" style="margin-top:2px">
+        <div class="card c5" style="box-shadow:none"><h3>Médias por componente</h3><p class="sub">Comparativo entre os períodos selecionados</p><div class="wrap" id="fChComp"></div></div>
+        <div class="card c7" style="box-shadow:none"><h3>Detalhamento das avaliações</h3><p class="sub">AV = avaliação · RP = recuperação paralela</p><div class="scrollx" id="fTbl"></div></div>
+      </div>`;
+    const ordM=lst2=>lst2.slice().sort((x,y)=>{const a=al.p[pB]&&al.p[pB][x]?al.p[pB][x][6]:null,b=al.p[pB]&&al.p[pB][y]?al.p[pB][y][6]:null;
+      return (a==null?99:a)-(b==null?99:b);});
+    const cB=ordM(compsA.filter(i=>!ehTec(i))), cT=ordM(compsA.filter(ehTec));
+    const cOrd=cB.concat(cT), secs=[];
+    if(cB.length&&cT.length){secs.push({start:0,name:'Formação Geral Básica — BNCC'},{start:cB.length,name:'Base Técnica — FTP'});}
+    gbar($('fChComp'),cOrd.map(i=>COMP[i]),ps.map(p=>({name:PERNOME[p-1],color:PERC[p-1],
+      vals:cOrd.map(i=>al.p[p]&&al.p[p][i]?al.p[p][i][6]:null)})),{max:10,ref:CORTE,dec:1,labelW:0.42,sections:secs});
+    const th='<tr><th rowspan="2">Componente</th><th rowspan="2">Área</th>'+
+      ps.map(p=>`<th class="grp" colspan="5" style="text-align:center">${esc(PERNOME[p-1])}</th>`).join('')+
+      (ps.length>1?'<th rowspan="2" class="num">Δ</th>':'')+'<th rowspan="2">Situação</th></tr><tr>'+
+      ps.map(()=>'<th class="num">AV1</th><th class="num">AV2</th><th class="num">AV3</th><th class="num">RP</th><th class="num">Média</th>').join('')+'</tr>';
+    const ncols=3+ps.length*5+(ps.length>1?1:0);
+    const grp=n=>`<tr class="grp-row"><td colspan="${ncols}">${esc(n)}</td></tr>`;
+    const tb=cOrd.map((i,ix)=>{const pre=secs.length?(ix===0?grp(secs[0].name):(ix===cB.length?grp(secs[1].name):'')):'';
+      const cells=ps.map(p=>{const v=al.p[p]&&al.p[p][i]?al.p[p][i]:null;
+        if(!v)return '<td class="num">—</td>'.repeat(5);
+        const rp=[v[3],v[4],v[5]].filter(x=>x!=null).map(x=>fm(x)).join(' / ')||'—';
+        const md=v[7]?`<b style="color:#B0141A" title="Sem nota lançada — considerada 0,0 porque a turma tem lançamento neste componente">0,0*</b>`:`<b>${fm(v[6])}</b>`;
+        return `<td class="num">${fm(v[0])}</td><td class="num">${fm(v[1])}</td><td class="num">${fm(v[2])}</td><td class="num" style="color:${rp!=='—'?'#B0141A':'inherit'}">${rp}</td><td class="num">${md}</td>`;}).join('');
+      const a0=al.p[ps[0]]&&al.p[ps[0]][i]?al.p[ps[0]][i][6]:null, a1=al.p[pB]&&al.p[pB][i]?al.p[pB][i][6]:null;
+      const d=(ps.length>1&&a0!=null&&a1!=null)?a1-a0:null, s=sit(a1!=null?a1:a0);
+      return pre+`<tr><td><b>${esc(COMP[i])}</b></td><td style="color:var(--muted)">${esc(ANOMES[CAREA[i]].replace('Formação Técnica e Profissional','FTP'))}</td>${cells}${ps.length>1?'<td class="num">'+deltaHTML(d)+'</td>':''}<td><span class="pill ${s[1]}">${s[0]}</span></td></tr>`;}).join('');
+    $('fTbl').innerHTML='<table><thead>'+th+'</thead><tbody>'+tb+'</tbody></table>';
+  }
+
+  /* tabela de estudantes */
+  const qt=state2.qt.toLowerCase();
+  let lst=F.filter(a=>!qt||a.n.toLowerCase().includes(qt)).map(a=>{
+    const m=ps.map(p=>mediaGeral(a,p)), d=(ps.length>1&&m[0]!=null&&m[m.length-1]!=null)?m[m.length-1]-m[0]:null;
+    const dd=a.p[pB]||{}; const imp=Object.keys(dd).filter(k=>ALLOW.has(+k)&&dd[k][7]).length;
+    return {a,m,d,ab:abaixo(a,pB),imp};});
+  if(state2.sort==='nome')lst.sort((x,y)=>x.a.t.localeCompare(y.a.t)||x.a.n.localeCompare(y.a.n));
+  if(state2.sort==='menor')lst.sort((x,y)=>(x.m[x.m.length-1]==null?99:x.m[x.m.length-1])-(y.m[y.m.length-1]==null?99:y.m[y.m.length-1]));
+  if(state2.sort==='queda')lst.sort((x,y)=>(x.d==null?99:x.d)-(y.d==null?99:y.d));
+  const sorts=[['nome','Turma e nome'],['menor','Menores médias'],['queda','Maiores quedas']];
+  $('nTbl').innerHTML='<div class="tabs">'+sorts.map(s=>`<div class="tab${state2.sort===s[0]?' on':''}" data-s="${s[0]}">${s[1]}</div>`).join('')+'</div>'+
+    '<table><thead><tr><th>Estudante</th><th>Turma</th><th>Série</th>'+
+    ps.map(p=>`<th class="num">Média ${esc(PERNOME[p-1].replace(' Período','º P.'))}</th>`).join('')+
+    (ps.length>1?'<th class="num">Δ</th>':'')+'<th class="num">Comp. &lt; 6,0</th><th class="num">Sem nota</th><th>Situação</th></tr></thead><tbody>'+
+    (lst.length?lst.map(o=>{const mv=o.m[o.m.length-1],s=sit(mv);
+      return `<tr class="click ${s[0]==='Crítico'?'crit':s[0]==='Atenção'?'aten':''}${key(o.a)===state2.aluno?' selected':''}" data-k="${esc(key(o.a))}">
+        <td><b>${esc(o.a.n)}</b></td><td>${esc(o.a.t)}</td><td>${esc(o.a.s)}</td>`+
+        o.m.map(v=>`<td class="num">${fm(v,2)}</td>`).join('')+
+        (ps.length>1?`<td class="num">${deltaHTML(o.d)}</td>`:'')+
+        `<td class="num">${o.ab==null?'—':o.ab}</td><td class="num" style="color:${o.imp?'#B0141A':'inherit'};font-weight:${o.imp?700:400}">${o.imp||'—'}</td><td><span class="pill ${s[1]}">${s[0]}</span></td></tr>`;}).join('')
+      :'<tr><td colspan="11" class="empty">Nenhum estudante encontrado.</td></tr>')+'</tbody></table>';
+  document.querySelectorAll('#nTbl .tab').forEach(t=>t.onclick=()=>{state2.sort=t.dataset.s;renderAll();});
+  document.querySelectorAll('#nTbl tr.click').forEach(t=>t.onclick=()=>{
+    state2.aluno=state2.aluno===t.dataset.k?'':t.dataset.k;renderAll();
+    if(state2.aluno)$('cardFicha').scrollIntoView({behavior:'smooth',block:'center'});});
+}
+
+/* ------------------------------- app ------------------------------------ */
+function renderAll(){
+  $('paneCons').style.display=view==='cons'?'':'none';
+  $('paneNotas').style.display=view==='notas'?'':'none';
+  $('viewCons').style.display=view==='cons'?'':'none';
+  $('viewNotas').style.display=view==='notas'?'':'none';
+  $('navCons').className=view==='cons'?'on':'';
+  $('navNotas').className=view==='notas'?'on':'';
+  if(view==='cons')renderCons(); else renderNotas();
+}
+$('navCons').onclick=()=>{view='cons';renderAll();};
+$('navNotas').onclick=()=>{view='notas';renderAll();};
+$('search').oninput=e=>{state.q=e.target.value;renderAll();};
+$('nBusca').oninput=e=>{state2.q=e.target.value;renderAll();};
+$('nBusca2').oninput=e=>{state2.qt=e.target.value;renderAll();};
+$('nAluno').onchange=e=>{state2.aluno=e.target.value;renderAll();};
+$('reset').onclick=()=>{state.serie.clear();state.turma.clear();state.conv.clear();state.q='';state2.q='';state2.qt='';
+  state2.aluno='';state2.sit.clear();state2.area=new Set(NOTAS.areas);
+  state2.per=new Set(COMNOTAS.length?COMNOTAS:['1']);state2.sort='nome';
+  $('search').value='';$('nBusca').value='';$('nBusca2').value='';renderAll();};
+let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(renderAll,180);});
+state2.area=new Set(NOTAS.areas);
+state2.per=new Set(COMNOTAS.length?COMNOTAS:['1']);
+renderAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+const ROWS=DATA.rows, META=DATA.meta;
+const state={serie:new Set(),turma:new Set(),conv:new Set(),tab:"Compromissos assumidos",q:""};
+const state2={per:new Set(['1','2']),area:new Set(),sit:new Set(),aluno:'',q:'',qt:'',sort:'nome'};
+let view='cons';
+const CONV=["Difícil","Regular","Bom","Muito Bom","Excelente"];
+const CONVC={"Difícil":"#E31E24","Regular":"#E8663F","Bom":"#7B7ED6","Muito Bom":"#3B2BC4","Excelente":"#18018F"};
+const C={navy:"#18018F",navyL:"#3B2BC4",navyLL:"#7B7ED6",red:"#E31E24",redL:"#EF6F73",gray:"#B9BECF"};
+const PERC=[C.navy,C.red,C.navyLL,"#E8663F"];
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const clean=s=>String(s).replace(/\s+/g,' ').trim();
+const short=(s,m)=>{s=clean(s);return s.length>m?s.slice(0,m-1)+'…':s;};
+const fm=(v,d)=>v==null||isNaN(v)?'—':Number(v).toFixed(d==null?1:d).replace('.',',');
+
+/* ================= gráficos em SVG puro (sem bibliotecas) ================= */
+function svgWrap(w,h,inner){return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif">${inner}</svg>`;}
+function hbar(el,items,color,total,opt){
+  opt=opt||{}; const w=Math.max(el.clientWidth||520,320);
+  if(!items.length){el.innerHTML='<div class="empty">Sem dados</div>';return;}
+  const rh=opt.rh||27,pad=6,labelW=Math.round(w*(opt.labelW||0.46)),valW=54;
+  const barX=labelW+8,barW=Math.max(w-barX-valW,40),h=items.length*rh+pad*2;
+  const max=Math.max(...items.map(i=>i[1]),1);let s='';
+  items.forEach((it,i)=>{const y=pad+i*rh,bw=Math.max(it[1]/max*barW,2),pct=total?(it[1]/total*100).toFixed(1)+'%':'';
+    s+=`<g class="row"><title>${esc(clean(it[0]))} — ${it[1]} respostas${pct?' ('+pct+')':''}</title>`
+     +`<rect x="0" y="${y}" width="${w}" height="${rh}" fill="transparent"/>`
+     +`<text x="${labelW}" y="${y+rh/2+4}" text-anchor="end" font-size="11.5" fill="#3A4160">${esc(short(it[0],Math.floor(labelW/6.1)))}</text>`
+     +`<rect x="${barX}" y="${y+5}" width="${bw}" height="${rh-11}" rx="3" fill="${color}"/>`
+     +`<text x="${barX+bw+7}" y="${y+rh/2+4}" font-size="11.5" font-weight="700" fill="#16192B">${it[1]}</text>`
+     +`<text x="${barX+bw+7+String(it[1]).length*7+4}" y="${y+rh/2+4}" font-size="10" fill="#8A93AD">${pct}</text></g>`;});
+  el.innerHTML=svgWrap(w,h,s);
+}
+function gbar(el,labels,series,opt){
+  opt=opt||{};const w=Math.max(el.clientWidth||520,320);
+  if(!labels.length){el.innerHTML='<div class="empty">Sem dados</div>';return;}
+  const bh=opt.bh||14,gap=4,head=series.length>1?20:6;
+  const rh=series.length*bh+(series.length-1)*2+gap*2;
+  const labelW=Math.round(w*(opt.labelW||0.40)),valW=opt.valW||46;
+  const barX=labelW+8,barW=Math.max(w-barX-valW,40);
+  const secAt={};(opt.sections||[]).forEach(x=>secAt[x.start]=x.name);
+  const secH=26,ys=[];let yy=head;
+  labels.forEach((lb,i)=>{if(secAt[i]!==undefined)yy+=secH;ys.push(yy);yy+=rh;});
+  const h=yy+8;
+  const max=opt.max||Math.max(1,...series.flatMap(s=>s.vals.map(v=>v||0)));
+  let s='';
+  if(series.length>1){let x=0;series.forEach(se=>{
+    s+=`<rect x="${x}" y="${head-16}" width="10" height="10" rx="2" fill="${se.color}"/>`
+     +`<text x="${x+15}" y="${head-7}" font-size="11" fill="#3A4160">${esc(se.name)}</text>`;
+    x+=15+se.name.length*6.2+16;});}
+  if(opt.ref){const rx=barX+opt.ref/max*barW;
+    s+=`<line x1="${rx}" y1="${head}" x2="${rx}" y2="${h-4}" stroke="${C.red}" stroke-width="1" stroke-dasharray="4 3"/>`
+     +`<text x="${rx+3}" y="${h-1}" font-size="9.5" fill="${C.red}">${fm(opt.ref)}</text>`;}
+  labels.forEach((lb,i)=>{
+    const y0=ys[i];
+    if(secAt[i]!==undefined){const ty=y0-9;
+      s+=`<text x="0" y="${ty}" font-size="10.5" font-weight="700" fill="#18018F" letter-spacing="0.6">${esc(secAt[i].toUpperCase())}</text>`
+       +`<line x1="0" y1="${ty+5}" x2="${w}" y2="${ty+5}" stroke="#18018F" stroke-width="1" opacity=".22"/>`;}
+    s+=`<g class="row"><title>${esc(clean(lb))}\n`+series.map(se=>se.name+': '+fm(se.vals[i],opt.dec)).join('\n')+`</title>`
+     +`<rect x="0" y="${y0}" width="${w}" height="${rh}" fill="transparent"/>`
+     +`<text x="${labelW}" y="${y0+rh/2+4}" text-anchor="end" font-size="11.5" fill="#3A4160">${esc(short(lb,Math.floor(labelW/6.1)))}</text>`;
+    series.forEach((se,j)=>{const v=se.vals[i],y=y0+gap+j*(bh+2);
+      if(v==null){s+=`<text x="${barX+3}" y="${y+bh-3}" font-size="10" fill="#A8AFC2">sem lançamento</text>`;return;}
+      const bw=Math.max(v/max*barW,1.5);
+      s+=`<rect x="${barX}" y="${y}" width="${bw}" height="${bh}" rx="2.5" fill="${se.color}"/>`
+       +`<text x="${barX+bw+6}" y="${y+bh-2.5}" font-size="10.5" font-weight="700" fill="#16192B">${fm(v,opt.dec)}</text>`;});
+    s+=`</g>`;});
+  el.innerHTML=svgWrap(w,h,s);
+}
+function arc(cx,cy,r,ri,a0,a1){const p=(rr,a)=>[cx+rr*Math.cos(a),cy+rr*Math.sin(a)];const big=(a1-a0)>Math.PI?1:0;
+  const [x1,y1]=p(r,a0),[x2,y2]=p(r,a1),[x3,y3]=p(ri,a1),[x4,y4]=p(ri,a0);
+  return `M${x1} ${y1}A${r} ${r} 0 ${big} 1 ${x2} ${y2}L${x3} ${y3}A${ri} ${ri} 0 ${big} 0 ${x4} ${y4}Z`;}
+function donut(el,items,colors,total){
+  const w=Math.max(el.clientWidth||360,300),r=Math.min(w*0.34,100),ri=r*0.58;
+  const cx=w/2,cy=r+16,lr=Math.ceil(items.length/2),h=cy+r+22+lr*20;let a=-Math.PI/2,s='';
+  items.forEach((it,i)=>{if(!it[1])return;const frac=it[1]/total,a1=a+frac*Math.PI*2;
+    const path=frac>=0.9999?`<circle cx="${cx}" cy="${cy}" r="${(r+ri)/2}" fill="none" stroke="${colors[i]}" stroke-width="${r-ri}"/>`
+      :`<path d="${arc(cx,cy,r,ri,a,a1)}" fill="${colors[i]}" stroke="#fff" stroke-width="2"/>`;
+    s+=`<g class="row"><title>${esc(it[0])}: ${it[1]} (${(frac*100).toFixed(1)}%)</title>${path}</g>`;
+    if(frac>0.07){const am=(a+a1)/2,rr=(r+ri)/2;
+      s+=`<text x="${cx+rr*Math.cos(am)}" y="${cy+rr*Math.sin(am)+4}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff" pointer-events="none">${(frac*100).toFixed(0)}%</text>`;}
+    a=a1;});
+  s+=`<text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="23" font-weight="700" fill="#18018F">${total}</text>`
+   +`<text x="${cx}" y="${cy+15}" text-anchor="middle" font-size="10" fill="#8A93AD">respostas</text>`;
+  items.forEach((it,i)=>{const col=i%2,row=Math.floor(i/2),x=col*(w/2)+10,y=cy+r+24+row*20;
+    s+=`<rect x="${x}" y="${y-9}" width="10" height="10" rx="2" fill="${colors[i]}"/>`
+     +`<text x="${x+16}" y="${y}" font-size="11" fill="#3A4160">${esc(it[0])} <tspan font-weight="700">${it[1]}</tspan></text>`;});
+  el.innerHTML=svgWrap(w,h,s);
+}
+function diverging(el,items,cLeft,cRight,labels){
+  const w=Math.max(el.clientWidth||600,340),rh=26,pad=28;
+  const labelW=Math.round(Math.min(w*0.24,150)),h=items.length*rh+pad+16;
+  const zone=(w-labelW-14)/2,cxA=labelW+8+zone;
+  const max=Math.max(...items.map(i=>Math.max(i[1],i[2])),1);
+  let s=`<text x="${cxA-8}" y="12" text-anchor="end" font-size="10.5" font-weight="700" fill="${cLeft}">◀ ${labels[0]}</text>`
+   +`<text x="${cxA+8}" y="12" font-size="10.5" font-weight="700" fill="${cRight}">${labels[1]} ▶</text>`
+   +`<line x1="${cxA}" y1="18" x2="${cxA}" y2="${h-6}" stroke="#D3D9E8"/>`;
+  items.forEach((it,i)=>{const y=pad+i*rh,lw=it[2]/max*zone,rw=it[1]/max*zone;
+    s+=`<g class="row"><title>${esc(it[0])} — maior: ${it[1]} · menor: ${it[2]}</title>`
+     +`<rect x="0" y="${y}" width="${w}" height="${rh}" fill="transparent"/>`
+     +`<text x="${labelW}" y="${y+rh/2+4}" text-anchor="end" font-size="11.5" fill="#3A4160">${esc(short(it[0],Math.floor(labelW/6.1)))}</text>`
+     +`<rect x="${cxA-lw}" y="${y+5}" width="${lw}" height="${rh-10}" rx="2.5" fill="${cLeft}"/>`
+     +`<rect x="${cxA}" y="${y+5}" width="${rw}" height="${rh-10}" rx="2.5" fill="${cRight}"/>`
+     +(it[2]?`<text x="${cxA-lw-5}" y="${y+rh/2+4}" text-anchor="end" font-size="10.5" font-weight="700" fill="#16192B">${it[2]}</text>`:'')
+     +(it[1]?`<text x="${cxA+rw+5}" y="${y+rh/2+4}" font-size="10.5" font-weight="700" fill="#16192B">${it[1]}</text>`:'')+`</g>`;});
+  el.innerHTML=svgWrap(w,h,s);
+}
+function stacked(el,rows,cA,cB,labels){
+  const w=Math.max(el.clientWidth||300,260),rh=64,h=rows.length*rh+34;
+  let s=`<rect x="0" y="6" width="11" height="11" rx="2" fill="${cA}"/><text x="18" y="16" font-size="11" fill="#3A4160">${labels[0]}</text>`
+   +`<rect x="${18+labels[0].length*6+16}" y="6" width="11" height="11" rx="2" fill="${cB}"/><text x="${18+labels[0].length*6+34}" y="16" font-size="11" fill="#3A4160">${labels[1]}</text>`;
+  rows.forEach((r,i)=>{const y=34+i*rh,t=r[1]+r[2]||1,wa=r[1]/t*w;
+    s+=`<text x="0" y="${y+10}" font-size="11.5" font-weight="600" fill="#16192B">${esc(r[0])}</text>`
+     +`<g class="row"><title>${esc(r[0])} — ${labels[0]}: ${r[1]} (${(r[1]/t*100).toFixed(0)}%) · ${labels[1]}: ${r[2]}</title>`
+     +`<rect x="0" y="${y+18}" width="${wa}" height="24" rx="3" fill="${cA}"/>`
+     +`<rect x="${wa}" y="${y+18}" width="${w-wa}" height="24" rx="3" fill="${cB}"/>`
+     +(r[1]?`<text x="8" y="${y+34}" font-size="11" font-weight="700" fill="#fff">${(r[1]/t*100).toFixed(0)}%</text>`:'')
+     +(r[2]?`<text x="${w-8}" y="${y+34}" text-anchor="end" font-size="11" font-weight="700" fill="#fff">${(r[2]/t*100).toFixed(0)}%</text>`:'')+`</g>`;});
+  el.innerHTML=svgWrap(w,h,s);
+}
+/* ======================================================================== */
+
+const $=id=>document.getElementById(id);
+function chips(el,items,set,cb,labels){el.innerHTML='';items.forEach((v,i)=>{const d=document.createElement('div');
+  d.className='chip'+(set.has(v)?' on':(set.size?' off':''));d.textContent=labels?labels[i]:v;
+  d.onclick=()=>{set.has(v)?set.delete(v):set.add(v);if(cb)cb();renderAll();};el.appendChild(d);});}
+function turmasFor(list){ if(!state.serie.size) return list;
+  return list.filter(t=>ROWS.some(r=>r.turma===t&&state.serie.has(r.serie))||NOTAS.alunos.some(a=>a.t===t&&state.serie.has(a.s))); }
+function allTurmas(){return [...new Set([...META.turmas,...NOTAS.turmas])].sort((a,b)=>a.localeCompare(b));}
+function syncTurmas(){const ok=new Set(turmasFor(allTurmas()));[...state.turma].forEach(t=>{if(!ok.has(t))state.turma.delete(t);});}
+
+/* ------------------------------ PRÉ-CONSELHO ---------------------------- */
+function filtered(){return ROWS.filter(r=>(!state.serie.size||state.serie.has(r.serie))&&
+  (!state.turma.size||state.turma.has(r.turma))&&(!state.conv.size||state.conv.has(r.convivencia)));}
+function count(rows,key){const m=new Map();rows.forEach(r=>(r[key]||[]).forEach(v=>m.set(v,(m.get(v)||0)+1)));
+  return [...m.entries()].sort((a,b)=>b[1]-a[1]);}
+function renderCons(){
+  chips($('fSerie'),META.series,state.serie,syncTurmas);
+  chips($('fTurma'),turmasFor(META.turmas),state.turma);
+  chips($('fConv'),CONV,state.conv);
+  const f=filtered(),n=f.length;
+  $('ttl').textContent='Painel de Resultados — Pré-Conselho';
+  $('crumb').textContent=(state.serie.size?[...state.serie].join(', '):'Todas as séries')+' · '+
+    (state.turma.size?[...state.turma].join(', '):'Todas as turmas')+' · '+n+' de '+ROWS.length+' respostas';
+  $('selInfo').innerHTML='Respostas: <b style="color:#fff">'+n+'</b><br>Turmas: <b style="color:#fff">'+new Set(f.map(r=>r.turma)).size+'</b><br>Séries: <b style="color:#fff">'+new Set(f.map(r=>r.serie)).size+'</b>';
+  const ids=['chConv','chSubj','chFac','chAtr','chMet','chDif','chPerf','chAval'];
+  if(!n){$('kpis').innerHTML='<div class="empty">Nenhuma resposta para esse filtro.</div>';
+    ids.forEach(i=>$(i).innerHTML='<div class="empty">Sem dados</div>');$('tbl').innerHTML='';$('txts').innerHTML='';return;}
+  const pos=f.filter(r=>["Bom","Muito Bom","Excelente"].includes(r.convivencia)).length;
+  const scr=f.filter(r=>r.convivencia);
+  const score=scr.length?scr.reduce((a,r)=>a+CONV.indexOf(r.convivencia)+1,0)/scr.length:0;
+  const infoSim=f.filter(r=>r.informado==='Sim').length,difSim=f.filter(r=>r.dif_aval==='Sim').length;
+  const topDif=count(f,'dificuldades').filter(d=>d[0]!=='Outro (texto livre)')[0]||['—',0];
+  const topMet=count(f,'metodos').filter(d=>d[0]!=='Outro (texto livre)')[0]||['—',0];
+  $('kpis').innerHTML=[['Respostas',n,'estudantes participantes'],
+    ['Índice de convivência',score.toFixed(2)+' / 5',(pos/n*100).toFixed(0)+'% avaliam como Bom+'],
+    ['Informados sobre avaliação',(infoSim/n*100).toFixed(0)+'%',infoSim+' de '+n+' responderam Sim'],
+    ['Com dificuldade nas avaliações',(difSim/n*100).toFixed(0)+'%',difSim+' de '+n+' responderam Sim'],
+    ['Metodologia preferida',short(topMet[0],26),topMet[1]+' citações'],
+    ['Dificuldade nº1',short(topDif[0],26),topDif[1]+' citações']]
+    .map(k=>`<div class="kpi"><div class="v" style="font-size:${String(k[1]).length>12?'15px':'26px'}">${esc(k[1])}</div><div class="l">${k[0]}</div><div class="s">${k[2]}</div></div>`).join('');
+  donut($('chConv'),CONV.map(c=>[c,f.filter(r=>r.convivencia===c).length]),CONV.map(c=>CONVC[c]),scr.length||n);
+  const ord=META.catalogs.subjects.map(s=>[s,f.filter(r=>r.maior.includes(s)).length,f.filter(r=>r.menor.includes(s)).length])
+    .sort((a,b)=>(b[1]-b[2])-(a[1]-a[2]));
+  diverging($('chSubj'),ord,C.red,C.navy,['Menor desenvolvimento','Maior desenvolvimento']);
+  hbar($('chFac'),count(f,'facilitou'),C.navy,n);hbar($('chAtr'),count(f,'atrapalhou'),C.red,n);
+  hbar($('chMet'),count(f,'metodos'),C.navyL,n);hbar($('chDif'),count(f,'dificuldades'),C.redL,n);
+  hbar($('chPerf'),count(f,'perfil'),C.navyLL,n,{labelW:0.52});
+  stacked($('chAval'),[['3.1 Fui informado sobre as formas de avaliação',infoSim,f.filter(r=>r.informado==='Não').length],
+    ['3.2 Tive dificuldade nas avaliações',difSim,f.filter(r=>r.dif_aval==='Não').length]],C.navy,C.red,['Sim','Não']);
+  const tr=[...new Set(f.map(r=>r.turma))].sort().map(t=>{const g=f.filter(r=>r.turma===t);
+    const p=g.filter(r=>["Bom","Muito Bom","Excelente"].includes(r.convivencia)).length,sc=g.filter(r=>r.convivencia);
+    return {t,n:g.length,serie:g[0].serie,pct:p/g.length*100,
+      idx:sc.length?sc.reduce((a,r)=>a+CONV.indexOf(r.convivencia)+1,0)/sc.length:0,
+      dif:g.filter(r=>r.dif_aval==='Sim').length/g.length*100};}).sort((a,b)=>b.idx-a.idx);
+  $('tbl').innerHTML='<table><thead><tr><th>Turma</th><th>Série</th><th class="num">Respostas</th><th class="num">Índice conviv.</th><th style="width:26%">Convivência positiva</th><th class="num">Dificuldade em avaliações</th></tr></thead><tbody>'+
+    tr.map(r=>`<tr><td><b>${r.t}</b></td><td>${r.serie}</td><td class="num">${r.n}</td><td class="num">${r.idx.toFixed(2)}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="width:${r.pct}%;background:${r.pct>75?'#18018F':r.pct>55?'#7B7ED6':'#E31E24'}"></div><span style="color:var(--muted)">${r.pct.toFixed(0)}%</span></div></td>
+      <td class="num">${r.dif.toFixed(0)}%</td></tr>`).join('')+'</tbody></table>';
+  const keys=Object.keys(ROWS[0].abertas);
+  $('tabs').innerHTML=keys.map(k=>`<div class="tab${k===state.tab?' on':''}" data-k="${esc(k)}">${esc(k)}</div>`).join('');
+  document.querySelectorAll('#tabs .tab').forEach(t=>t.onclick=()=>{state.tab=t.dataset.k;renderAll();});
+  const q=state.q.toLowerCase();
+  const list=f.map(r=>({t:r.abertas[state.tab]||'',turma:r.turma,serie:r.serie}))
+    .filter(x=>x.t.length>1&&!/^(nada|não|nao|nenhum[ao]?|n\/a|-|\.)$/i.test(x.t.trim()))
+    .filter(x=>!q||x.t.toLowerCase().includes(q));
+  $('txts').innerHTML=list.length?list.map(x=>`<div class="q"><b>${esc(x.turma)} · ${esc(x.serie)}</b><br>${esc(x.t)}</div>`).join(''):'<div class="empty">Sem respostas de texto para esse filtro.</div>';
+}
